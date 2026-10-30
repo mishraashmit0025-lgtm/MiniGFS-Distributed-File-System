@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+package minigfs;
+
+option go_package = "github.com/mishraashmit0025-lgtm/MiniGFS-Distributed-File-System/proto/gfspb";
+
+// ---------------------------------------------------------------- Raft (master replication)
+
+message LogEntry {
+  uint64 term = 1;
+  uint64 index = 2;
+  bytes command = 3;
+}
+
+message RequestVoteRequest {
+  uint64 term = 1;
+  string candidate_id = 2;
+  uint64 last_log_index = 3;
+  uint64 last_log_term = 4;
+}
+
+message RequestVoteResponse {
+  uint64 term = 1;
+  bool vote_granted = 2;
+}
+
+message AppendEntriesRequest {
+  uint64 term = 1;
+  string leader_id = 2;
+  uint64 prev_log_index = 3;
+  uint64 prev_log_term = 4;
+  repeated LogEntry entries = 5;
+  uint64 leader_commit = 6;
+}
+
+message AppendEntriesResponse {
+  uint64 term = 1;
+  bool success = 2;
+  // on failure: first index of the conflicting term, so the leader can back up quickly
+  uint64 conflict_index = 3;
+}
+
+service Raft {
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+}
+
+// ---------------------------------------------------------------- Master
+
+message ChunkLocation {
+  uint64 handle = 1;
+  uint64 version = 2;
+  uint64 size = 3;
+  repeated string replicas = 4; // chunkserver addresses, primary first
+}
+
+message CreateFileRequest { string path = 1; }
+message CreateFileResponse {}
+
+message DeleteFileRequest { string path = 1; }
+message DeleteFileResponse {}
+
+message ListFilesRequest { string prefix = 1; }
+message FileInfo {
+  string path = 1;
+  uint64 size = 2;
+  uint32 chunks = 3;
+}
+message ListFilesResponse { repeated FileInfo files = 1; }
+
+message GetFileRequest { string path = 1; }
+message GetFileResponse {
+  uint64 size = 1;
+  uint64 chunk_size = 2;
+  repeated ChunkLocation chunks = 3;
+}
+
+message AllocateChunkRequest { string path = 1; }
+message AllocateChunkResponse { ChunkLocation chunk = 1; }
+
+message CommitChunkRequest {
+  string path = 1;
+  uint64 handle = 2;
+  uint64 size = 3;
+}
+message CommitChunkResponse {}
+
+message HeartbeatRequest {
+  string address = 1;
+  repeated uint64 handles = 2;
+  uint64 free_bytes = 3;
+}
+message HeartbeatResponse {
+  repeated uint64 garbage = 1; // chunks the server may delete
+}
+
+message StatusRequest {}
+message StatusResponse {
+  string id = 1;
+  bool leader = 2;
+  string leader_address = 3;
+  uint64 term = 4;
+  uint64 commit_index = 5;
+  repeated string live_chunkservers = 6;
+}
+
+service Master {
+  rpc CreateFile(CreateFileRequest) returns (CreateFileResponse);
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc GetFile(GetFileRequest) returns (GetFileResponse);
+  rpc AllocateChunk(AllocateChunkRequest) returns (AllocateChunkResponse);
+  rpc CommitChunk(CommitChunkRequest) returns (CommitChunkResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+// ---------------------------------------------------------------- Chunkserver
+
+message WriteChunkRequest {
+  uint64 handle = 1;
+  bytes data = 2;
+  uint32 checksum = 3;               // CRC32-C of data
+  repeated string forward_to = 4;    // remaining replicas in the chain
+}
+message WriteChunkResponse {}
+
+message ReadChunkRequest {
+  uint64 handle = 1;
+  uint64 offset = 2;
+  uint64 length = 3; // 0 = to end of chunk
+}
+message ReadChunkResponse { bytes data = 1; }
+
+message CopyChunkRequest {
+  uint64 handle = 1;
+  string target = 2; // chunkserver to copy to (re-replication)
+}
+message CopyChunkResponse {}
+
+service ChunkServer {
+  rpc WriteChunk(WriteChunkRequest) returns (WriteChunkResponse);
+  rpc ReadChunk(ReadChunkRequest) returns (ReadChunkResponse);
+  rpc CopyChunk(CopyChunkRequest) returns (CopyChunkResponse);
+}

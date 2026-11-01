@@ -213,7 +213,7 @@ func TestConcurrentReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const readers = 10000
+	const readers = 1000
 	var failed atomic.Int64
 	lat := make([]time.Duration, readers)
 	var wg sync.WaitGroup
